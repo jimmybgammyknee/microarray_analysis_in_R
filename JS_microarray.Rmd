@@ -60,17 +60,19 @@ library(affy)
 The NCBI GEO database contains all the gene expression 
 
 ```{r getStudy}
-# Lets get johns data using his NCBI ID
-getGEOSuppFiles("GSE70401")
-
 # ..and then set the directory we want to roll around in
 setwd("~/ownCloud/projects/BioinfoHub/microarray_analysis_in_R/GSE70401")
 
-# Unpack
+# Lets get johns data using his NCBI ID
+getGEOSuppFiles("GSE70401")
+
+# Unpack archive file (the tar file)
 untar("GSE70401_RAW.tar", exdir="data")
-cels = list.files("data/", pattern = "CEL")
+
+# List the files in the directory and then unzip each of them in parallel using sapply
+cels <- list.files("data/", pattern = "CEL")
 sapply(paste("data", cels, sep="/"), gunzip)
-cels = list.files("data/", pattern = "CEL")
+
 ```
 
 Ok lets see what we have:
