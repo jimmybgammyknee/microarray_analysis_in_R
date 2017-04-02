@@ -1,0 +1,215 @@
+---
+title: "Microarray Analyses in R"
+author: "Jimmy Breen"
+date: "01/04/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Microarray's and Public Data
+
+Jimmy Breen  
+Bioinformatics Core Facility  
+Robinson Research Institute  
+University of Adelaide  
+
+
+**Note:**
+
+This tutorial is _heavily_ influenced by numerous tutorials online:
+
+- http://bioinformatics.knowledgeblog.org/2011/06/20/analysing-microarray-data-in-bioconductor/
+- https://www.biostars.org/p/53870/
+
+## Downloading packages
+
+R is a pretty cool programming language to get stuck into gene expression datasets, because there are a tonne of packages that allow you to download data straight off the internet. Most of the really useful packages that facilitate the analysis of biological data are from the [BioConductor](https://bioconductor.org) repository, which is fully open-sourced.
+
+First we'll need to install these Bioconductor packages and load them for our tutorial
+
+```{r download}
+# download the BioC installation routines
+source("http://bioconductor.org/biocLite.R")
+
+# install the core packages
+biocLite()
+
+# install the GEO libraries and some other useful ones
+biocLite(c("GEOquery", "ggplot2", "limma", "readr", "magrittr", "oligo", "pd.mogene.2.0.st", "affy", "dplyr"))
+```
+
+If you've already installed them, then you dont need to do it a second time. You can just skip the last code chunk and go straight to loading the packages
+
+```{r load}
+# Load the required libraries
+library(GEOquery)
+library(ggplot2)
+library(dplyr)
+library(limma)
+library(readr)
+library(magrittr)
+library(oligo)
+library(affy)
+```
+
+## Getting the data
+
+The NCBI GEO database contains all the gene expression 
+
+```{r getStudy}
+# Lets get johns data using his NCBI ID
+getGEOSuppFiles("GSE70401")
+
+# ..and then set the directory we want to roll around in
+setwd("~/ownCloud/projects/BioinfoHub/microarray_analysis_in_R/GSE70401")
+
+# Unpack
+untar("GSE70401_RAW.tar", exdir="data")
+cels = list.files("data/", pattern = "CEL")
+sapply(paste("data", cels, sep="/"), gunzip)
+cels = list.files("data/", pattern = "CEL")
+```
+
+Ok lets see what we have:
+
+```{r filedir}
+list.files("data/")
+```
+
+You should have three files and a directory called "data". The "txt.gz" file is the results published by John and his group. The other two are just left over from us unpacking the file when we downloaded it.
+
+Now we have to give the data some context and specify what each treatment refers to. For this experiment its "INT" (as in "intact") and "SVX" (John to explain these). To do this, we need to add this information into the data object as "group" data.
+
+
+```{r pheno}
+# Get the samplenames - in this case the filenames of each sample
+filename <- sampleNames(rawData)
+
+# Add it was pData
+pData(rawData)$filename <- filename
+
+# Those filenames are a bit of a pain in the arse, so lets get rid of the crap at the end of them
+sampleNames <- sub("_MoGene-2_0-st_.CEL$", "", filename)
+sampleNames(rawData) <- sampleNames
+
+# Now we need to specific what each sample is - intact or svx?
+pData(rawData)$group <- c("INT", "INT", "INT", "INT", 
+                          "SVX", "SVX", "SVX", "SVX")
+pData(rawData)
+```
+
+Each sample was basically run individually, so they each have different expression values that have their own biases. To compare them however, we need to normalise them. For this we'll use rma() which is a quantile normalization method that removes background noise in microarrays
+
+```{r normalising}
+probesetSummaries <- rma(rawData, target="probeset")
+geneSummaries <- rma(rawData, target="core")
+```
+
+# Quality Control
+
+So we have our data normalised, lets see how the samples relate to each other. We do this by running hierarchial clustering
+
+```{r qc}
+
+pdf("Hierarchical_clustering.pdf")
+m<-t(exprs(rawData))
+d <- dist(m)
+fit <- hclust(d) 
+plot(fit,main="raw data")
+m<-t(exprs(probesetSummaries))
+d <- dist(m)
+fit <- hclust(d) 
+plot(fit,main="probe base normalization data")
+m<-t(exprs(geneSummaries))
+d <- dist(m)
+fit <- hclust(d) 
+plot(fit,main="gene base normalization data")
+dev.off()
+```
+
+Do the samples relate to each other? What clustered with what sample? Do intacts and svx cluster together or separated (like we would expect)?
+
+```{r save_expression}
+#make expression matrix file
+write.exprs(probesetSummaries,file="normalization_prob_matrix.txt",sep="\t")
+write.exprs(geneSummaries,file="normalization_gene_matrix.txt",sep="\t")
+```
+
+## Differential gene expression
+
+While this has already been done by John using a different software, I want to show you how to actually quantify the differences between the two treatment groups. To do this, we need to run differential gene expression with a package called "limma".
+
+Limma was developed at the Walter and Elizabeth Hall Institute for Medical Research (WEHI) which has one of the best biostatistical groups in the world. They developed these packages to identify differences between groups within microarrays. They also done a lot of work developing packages to identify differences in RNAseq experiments
+
+```{r deg}
+# Read in our expression data
+x <- read.table("normalization_prob_matrix.txt",sep="\t",head=TRUE,row.names=1)
+
+# Bind together the four replicates for each group as intact or svx
+intact <- cbind(x$GSM1726562_JS_I1exp,x$GSM1726563_JS_I2exp, 
+                x$GSM1726564_JS_I3exp, x$GSM1726565_JS_I4exp)
+
+svx <- cbind(x$GSM1726566_JS_S1exp, x$GSM1726567_JS_S2exp,
+             x$GSM1726568_JS_S3exp, x$GSM1726569_JS_S4exp)
+
+# Specific a design matrix model to test
+design <- as.matrix(cbind(intact=c(1,1,1,1,0,0,0,0), svx=c(0,0,0,0,1,1,1,1)))
+```
+
+The differential expression uses a negative bionomial distribution (shown to be the best reflection of what microarray data looks like) to fit a linear model. Then we identify any significant differences outside that model, and the write our results into a table.
+
+```{r deg2}
+
+x.rma <-cbind(intact,svx)
+
+# Fit the linear model
+fit <- lmFit(x.rma,design)
+
+# Define the differences i.e. the treatments
+cont.matrix <- makeContrasts(INTvsSVX=svx-intact,levels=design)
+
+# Fit the contrasts between the treatments
+fit2 <- contrasts.fit(fit,cont.matrix)
+fit2 <- eBayes(fit2)
+
+# Make the gene IDs the rownames
+fit2$genes$Symbol=rownames(x)
+
+# Write the results to a table
+write.table(topTable(fit2, adjust="BH",number = 500000),
+            file="Int_vs_Svx_gene.txt",
+            row.names = TRUE, col.names = TRUE, sep ="\t")
+
+```
+
+Questions:
+
+- What does our results show? How good are results?
+- What is the difference between P.Value and adjusted.P.Value?
+- Is this, in your opinion, a statistically supported dataset?
+
+## Plots
+
+Data aside, one of the easiests ways to visualise the potentially interesting things within the dataset is to create a volcano plot. These are generally called volcanoes because they look like they're errupting from the ground.
+
+We need to plot the pvalue (usually I take the adjusted.P.Value but we can't in this study) against the log fold change (logFC). Because the P.Values tend to be extremely small, they're often difficult to visualise, so the convention is to negative log transform them.
+
+Here, I'm using the popular package "ggplot2" to plot the values from our results. The "%>%" symbol means a pipe, or a way in which you can pass one command onto the other without making a new datafram or matrix. It's a common way in which old dinosaurs like me use R because it uses the old UNIX commputing style of command-line usage. It also makes R so much easier to use.
+
+Here, I'm removing every gene that is more than a P.Value of 0.01
+
+```{r volano}
+
+topTable(fit2, adjust="BH",number = 500000) %>%
+   filter(P.Value < 0.01) %>%
+   ggplot(aes(logFC, -log2(P.Value))) +
+   geom_point() +
+   ylab("Negative log2 (non-corrected) P.Value") +
+   xlab("Log Fold Change (logFC)") +
+   theme_bw()
+
+```
+
