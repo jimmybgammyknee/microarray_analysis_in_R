@@ -38,7 +38,7 @@ source("http://bioconductor.org/biocLite.R")
 biocLite()
 
 # install the GEO libraries and some other useful ones
-biocLite(c("GEOquery", "ggplot2", "limma", "readr", "magrittr", "oligo", "pd.mogene.2.0.st", "affy", "dplyr"))
+biocLite(c("GEOquery", "ggplot2", "limma", "readr", "magrittr", "oligo", "pd.mogene.2.0.st", "affy", "dplyr", "edgeR", "mogene20sttranscriptcluster.db"))
 ```
 
 If you've already installed them, then you dont need to do it a second time. You can just skip the last code chunk and go straight to loading the packages
@@ -53,6 +53,9 @@ library(readr)
 library(magrittr)
 library(oligo)
 library(affy)
+library(edgeR)
+library(pd.mogene.2.0.st)
+library(mogene20sttranscriptcluster.db)
 ```
 
 ## Getting the data
@@ -87,6 +90,9 @@ Now we have to give the data some context and specify what each treatment refers
 
 
 ```{r pheno}
+setwd("~/ownCloud/projects/BioinfoHub/microarray_analysis_in_R/GSE70401/data/")
+rawData <- read.celfiles(cels)
+
 # Get the samplenames - in this case the filenames of each sample
 filename <- sampleNames(rawData)
 
@@ -106,9 +112,11 @@ pData(rawData)
 Each sample was basically run individually, so they each have different expression values that have their own biases. To compare them however, we need to normalise them. For this we'll use rma() which is a quantile normalization method that removes background noise in microarrays
 
 ```{r normalising}
-probesetSummaries <- rma(rawData, target="probeset")
-geneSummaries <- rma(rawData, target="core")
+probesetSummaries <- oligo::rma(rawData, target="probeset")
+geneSummaries <- oligo::rma(rawData, target="core")
 ```
+
+
 
 # Quality Control
 
@@ -139,6 +147,35 @@ Do the samples relate to each other? What clustered with what sample? Do intacts
 write.exprs(probesetSummaries,file="normalization_prob_matrix.txt",sep="\t")
 write.exprs(geneSummaries,file="normalization_gene_matrix.txt",sep="\t")
 ```
+
+# Add Annotation
+
+We need to add gene info to make this all make sense
+
+```{r info}
+
+ x <- mogene20sttranscriptclusterENSEMBL
+    # Get the entrez gene IDs that are mapped to an Ensembl ID
+    mapped_genes <- mappedkeys(x)
+    # Convert to a list
+    xx <- as.list(x[mapped_genes])
+
+df <- data.frame(exprs(geneSummaries))
+# Put annotation information in a data frame.  To get specific fields, use packageNameSYMBOL, where the caps part names the type of data you're after
+# To get a list of available annotation information, run the packagename with () at the end, i.e. mogene20sttranscriptcluster()
+Annot <- data.frame(SYMBOL=sapply(contents(mogene20sttranscriptclusterSYMBOL), paste, collapse=","), 
+                    DESC=sapply(contents(mogene20sttranscriptclusterGENENAME), paste, collapse=","),
+                    ENTREZID=sapply(contents(mogene20sttranscriptclusterENTREZID), paste, collapse=","),
+                    ENSEMBLID=sapply(contents(mogene20sttranscriptclusterENSEMBL), paste, collapse=","))
+
+# Merge data frames together (like a database table join)
+all <- merge(Annot, df, by.x=0, by.y=0, all=T)
+
+# Write out to a file:
+write.table(all,file="normalization_gene_matrix.with_annotation.txt",sep="\t")
+```
+
+
 
 ## Differential gene expression
 
