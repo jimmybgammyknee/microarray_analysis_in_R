@@ -148,6 +148,18 @@ write.exprs(probesetSummaries,file="normalization_prob_matrix.txt",sep="\t")
 write.exprs(geneSummaries,file="normalization_gene_matrix.txt",sep="\t")
 ```
 
+Lets make a PCA to see how the samples fit together:
+
+```{r pca}
+# Make a PCA
+color=c('green','green','green','green', 'red','red','red','red')
+data.PC = prcomp(t(exprs(geneSummaries)),scale.=TRUE)
+plot(data.PC$x[1:8],col=color)
+
+```
+
+
+
 # Add Annotation
 
 We need to add gene info to make this all make sense. We're going to put on ENTREZ IDs, which are the gene IDs for NCBI (the main database for genetic data for the entire world).
@@ -168,9 +180,10 @@ df <- data.frame(exprs(geneSummaries)) %>%
 all <- dplyr::full_join(Annot, df, by = c("probe_id" = "ProbeID"))
 
 # Write out to a file:
-write.table(all,file="normalization_gene_matrix.with_annotation.txt",sep="\t")
+write.table(all, file="normalization_gene_matrix.with_annotation.txt", sep="\t")
 ```
 
+Now we have a table that has our probe IDs (that dont mean anything other than info )
 
 ## Differential gene expression
 
