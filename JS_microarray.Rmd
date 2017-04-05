@@ -150,31 +150,26 @@ write.exprs(geneSummaries,file="normalization_gene_matrix.txt",sep="\t")
 
 # Add Annotation
 
-We need to add gene info to make this all make sense
+We need to add gene info to make this all make sense. We're going to put on ENTREZ IDs, which are the gene IDs for NCBI (the main database for genetic data for the entire world).
 
 ```{r info}
 
- x <- mogene20sttranscriptclusterENSEMBL
-    # Get the entrez gene IDs that are mapped to an Ensembl ID
-    mapped_genes <- mappedkeys(x)
-    # Convert to a list
-    xx <- as.list(x[mapped_genes])
+x <- mogene20sttranscriptclusterENTREZID
 
-df <- data.frame(exprs(geneSummaries))
-# Put annotation information in a data frame.  To get specific fields, use packageNameSYMBOL, where the caps part names the type of data you're after
-# To get a list of available annotation information, run the packagename with () at the end, i.e. mogene20sttranscriptcluster()
-Annot <- data.frame(SYMBOL=sapply(contents(mogene20sttranscriptclusterSYMBOL), paste, collapse=","), 
-                    DESC=sapply(contents(mogene20sttranscriptclusterGENENAME), paste, collapse=","),
-                    ENTREZID=sapply(contents(mogene20sttranscriptclusterENTREZID), paste, collapse=","),
-                    ENSEMBLID=sapply(contents(mogene20sttranscriptclusterENSEMBL), paste, collapse=","))
+# Get the entrez gene IDs that are mapped to an Ensembl ID
+mapped_genes <- mappedkeys(x)
+
+# Create dataframes
+Annot <- as.data.frame(x[mapped_probes])
+df <- data.frame(exprs(geneSummaries)) %>% 
+   tibble::rownames_to_column(var="ProbeID")
 
 # Merge data frames together (like a database table join)
-all <- merge(Annot, df, by.x=0, by.y=0, all=T)
+all <- dplyr::full_join(Annot, df, by = c("probe_id" = "ProbeID"))
 
 # Write out to a file:
 write.table(all,file="normalization_gene_matrix.with_annotation.txt",sep="\t")
 ```
-
 
 
 ## Differential gene expression
