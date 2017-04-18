@@ -56,6 +56,7 @@ library(affy)
 library(edgeR)
 library(pd.mogene.2.0.st)
 library(mogene20sttranscriptcluster.db)
+library(org.Mm.eg.db)
 ```
 
 ## Getting the data
@@ -81,7 +82,7 @@ sapply(paste("data", cels, sep="/"), gunzip)
 Ok lets see what we have:
 
 ```{r filedir}
-list.files("data/")
+cels <- list.files("data/", pattern = "CEL")
 ```
 
 You should have three files and a directory called "data". The "txt.gz" file is the results published by John and his group. The other two are just left over from us unpacking the file when we downloaded it.
@@ -260,3 +261,31 @@ topTable(fit2, adjust="BH",number = 500000) %>%
 
 ```
 
+# Gene Ontology
+
+Lets get a random sample of genes and see if they have enriched Gene Ontology terms and whether they're enriched in any specific pathway. They shouldn't really because they're essentially random, but a few mich pop out
+
+```{r goana_kegg}
+
+test <- sample(all$gene_id)[1:100]
+test <- test[!is.na(test)]
+
+test %>% 
+   goana(x$entrezgene, species = "Mm", trend = TRUE) %>%
+   topGO() %>%
+         filter(P.DE < 0.05)
+
+test %>%
+   kegga(x$entrezgene, species.KEGG="mmu") %>% 
+         arrange(P.DE) %>%
+         filter(P.DE < 0.05)
+
+```
+
+Now get a vector of your DE genes and replicate what I've done here with the goana and kegga functions. Unfortunately, I havent got a way of getting these entrez gene ids out of our data as yet, so you'll have to look each gene up (from John's paper) mannually on the NCBI Gene website and get the ID from there 
+
+```
+genes <- c("entrez id 1", "entrez id 2", "entrez id 3") etc
+```
+
+*I might have a solution soon
