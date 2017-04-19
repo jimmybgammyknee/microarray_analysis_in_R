@@ -57,6 +57,7 @@ library(edgeR)
 library(pd.mogene.2.0.st)
 library(mogene20sttranscriptcluster.db)
 library(org.Mm.eg.db)
+library(annotate)
 ```
 
 ## Getting the data
@@ -180,6 +181,7 @@ df <- data.frame(exprs(geneSummaries)) %>%
 # Merge data frames together (like a database table join)
 all <- dplyr::full_join(Annot, df, by = c("probe_id" = "ProbeID"))
 
+
 # Write out to a file:
 write.table(all, file="normalization_gene_matrix.with_annotation.txt", sep="\t")
 ```
@@ -193,21 +195,36 @@ While this has already been done by John using a different software, I want to s
 Limma was developed at the Walter and Elizabeth Hall Institute for Medical Research (WEHI) which has one of the best biostatistical groups in the world. They developed these packages to identify differences between groups within microarrays. They also done a lot of work developing packages to identify differences in RNAseq experiments
 
 ```{r deg}
-# Read in our expression data
-x <- read.table("normalization_prob_matrix.txt",sep="\t",head=TRUE,row.names=1)
+
+all2 <- read.table("normalization_gene_matrix.with_annotation.txt",sep="\t",head=TRUE,row.names=1)
+
+rownames(all2) <- all2$probe_id
+
+# # Read in our expression data
+# x <- read.table("normalization_prob_matrix.txt",sep="\t",head=TRUE,row.names=1) %>%
+#    tibble::rownames_to_column(var="probes")
+
 
 # Bind together the four replicates for each group as intact or svx
-intact <- cbind(x$GSM1726562_JS_I1exp,x$GSM1726563_JS_I2exp, 
-                x$GSM1726564_JS_I3exp, x$GSM1726565_JS_I4exp)
+# intact <- cbind(x$GSM1726562_JS_I1exp,x$GSM1726563_JS_I2exp, 
+#                 x$GSM1726564_JS_I3exp, x$GSM1726565_JS_I4exp)
+# 
+# svx <- cbind(x$GSM1726566_JS_S1exp, x$GSM1726567_JS_S2exp,
+#              x$GSM1726568_JS_S3exp, x$GSM1726569_JS_S4exp)
 
-svx <- cbind(x$GSM1726566_JS_S1exp, x$GSM1726567_JS_S2exp,
-             x$GSM1726568_JS_S3exp, x$GSM1726569_JS_S4exp)
+# Bind together the four replicates for each group as intact or svx
+intact <- cbind(all2$GSM1726562_JS_I1exp,all2$GSM1726563_JS_I2exp, 
+                all2$GSM1726564_JS_I3exp, all2$GSM1726565_JS_I4exp)
+
+svx <- cbind(all2$GSM1726566_JS_S1exp, all2$GSM1726567_JS_S2exp,
+             all2$GSM1726568_JS_S3exp, all2$GSM1726569_JS_S4exp)
 
 # Specific a design matrix model to test
 design <- as.matrix(cbind(intact=c(1,1,1,1,0,0,0,0), svx=c(0,0,0,0,1,1,1,1)))
 ```
 
 The differential expression uses a negative bionomial distribution (shown to be the best reflection of what microarray data looks like) to fit a linear model. Then we identify any significant differences outside that model, and the write our results into a table.
+
 
 ```{r deg2}
 
@@ -224,7 +241,7 @@ fit2 <- contrasts.fit(fit,cont.matrix)
 fit2 <- eBayes(fit2)
 
 # Make the gene IDs the rownames
-fit2$genes$Symbol=rownames(x)
+fit2$genes$Symbol=rownames(all2)
 
 # Write the results to a table
 write.table(topTable(fit2, adjust="BH",number = 500000),
@@ -261,21 +278,30 @@ topTable(fit2, adjust="BH",number = 500000) %>%
 
 ```
 
-# Gene Ontology
+# Gene Ontology and KEGG Pathways
 
 Lets get a random sample of genes and see if they have enriched Gene Ontology terms and whether they're enriched in any specific pathway. They shouldn't really because they're essentially random, but a few mich pop out
 
 ```{r goana_kegg}
 
-test <- sample(all$gene_id)[1:100]
-test <- test[!is.na(test)]
+deg <- topTable(fit2, adjust="BH",number = 500000) 
+rownames(deg) <- deg$Symbol
 
-test %>% 
+all2$probe_id <- as.character(all2$probe_id)
+
+new <- deg %>% 
+   dplyr::full_join(all2, by = c("Symbol" = "probe_id")) %>%
+   dplyr::select(Symbol, gene_id, logFC, AveExpr, P.Value, adj.P.Val) %>%
+   filter(P.Value < 0.01)
+
+test_genes <- new[!is.na(new$gene_id),]
+
+test_genes$gene_id %>% 
    goana(x$entrezgene, species = "Mm", trend = TRUE) %>%
    topGO() %>%
          filter(P.DE < 0.05)
 
-test %>%
+test_genes$gene_id %>%
    kegga(x$entrezgene, species.KEGG="mmu") %>% 
          arrange(P.DE) %>%
          filter(P.DE < 0.05)
