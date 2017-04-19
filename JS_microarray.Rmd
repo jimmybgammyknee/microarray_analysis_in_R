@@ -58,6 +58,8 @@ library(pd.mogene.2.0.st)
 library(mogene20sttranscriptcluster.db)
 library(org.Mm.eg.db)
 library(annotate)
+library(biomaRt)
+library(pander)
 ```
 
 ## Getting the data
@@ -159,7 +161,6 @@ data.PC = prcomp(t(exprs(geneSummaries)),scale.=TRUE)
 plot(data.PC$x[1:8],col=color)
 
 ```
-
 
 
 # Add Annotation
@@ -308,10 +309,25 @@ test_genes$gene_id %>%
 
 ```
 
-Now get a vector of your DE genes and replicate what I've done here with the goana and kegga functions. Unfortunately, I havent got a way of getting these entrez gene ids out of our data as yet, so you'll have to look each gene up (from John's paper) mannually on the NCBI Gene website and get the ID from there 
 
-```
-genes <- c("entrez id 1", "entrez id 2", "entrez id 3") etc
+Now to get those gene names:
+
+```{r gene_names}
+
+new_noNA <- new[!is.na(new$gene_id),]
+
+mart <- biomaRt::useMart(biomart = "ENSEMBL_MART_ENSEMBL",
+  dataset = "mmusculus_gene_ensembl",
+  host = 'ensembl.org')
+
+entrez2mgi <- getBM(attributes = c("external_gene_name", "entrezgene", "gene_biotype"),
+                    mart = mart,
+                    filters = "entrezgene",
+                    values = new_noNA$gene_id)
+
+final_table <- dplyr::full_join(new_noNA, entrez2mgi, by = c("gene_id" = "entrezgene")) %>%
+   dplyr::select(external_gene_name, gene_biotype, logFC, AveExpr, P.Value, adj.P.Val)
+
+pander(final_table %>% head(n=20))
 ```
 
-*I might have a solution soon
