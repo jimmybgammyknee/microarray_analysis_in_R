@@ -121,7 +121,6 @@ geneSummaries <- oligo::rma(rawData, target="core")
 ```
 
 
-
 # Quality Control
 
 So we have our data normalised, lets see how the samples relate to each other. We do this by running hierarchial clustering
@@ -298,12 +297,12 @@ new <- deg %>%
 test_genes <- new[!is.na(new$gene_id),]
 
 test_genes$gene_id %>% 
-   goana(x$entrezgene, species = "Mm", trend = TRUE) %>%
+   goana(species = "Mm", trend = TRUE) %>%
    topGO() %>%
-         filter(P.DE < 0.05)
+   filter(P.DE < 0.05)
 
 test_genes$gene_id %>%
-   kegga(x$entrezgene, species.KEGG="mmu") %>% 
+   kegga(species.KEGG="mmu") %>% 
          arrange(P.DE) %>%
          filter(P.DE < 0.05)
 
@@ -326,8 +325,41 @@ entrez2mgi <- getBM(attributes = c("external_gene_name", "entrezgene", "gene_bio
                     values = new_noNA$gene_id)
 
 final_table <- dplyr::full_join(new_noNA, entrez2mgi, by = c("gene_id" = "entrezgene")) %>%
-   dplyr::select(external_gene_name, gene_biotype, logFC, AveExpr, P.Value, adj.P.Val)
+   dplyr::select(external_gene_name, Symbol, gene_biotype, logFC, AveExpr, P.Value, adj.P.Val)
 
 pander(final_table %>% head(n=20))
+```
+
+# Heatmap of differetially expressed genes
+
+The probe IDs are needed to go back and then look at the expression values
+
+```{r gene_heatmap}
+filtered <- final_table[!is.na(final_table$external_gene_name),] %>%
+   filter(adj.P.Val < 0.1)
+
+# Get the IDs we need to subset on
+ids <- filtered$Symbol 
+
+#subset our original dataframe with the expression values and remove the probe/geneID columns
+subsetTbl <- all2[rownames(all2) %in% ids,]
+subsetTbl <- subsetTbl[,-1]
+subsetTbl <- subsetTbl[,-1]
+subsetTbl_m <- data.matrix(subsetTbl)
+
+# We want our gene names as rownames
+new_rownames <- filtered %>%
+   arrange(Symbol) %>%
+   dplyr::select(external_gene_name)
+
+row.names(subsetTbl_m) <- new_rownames$external_gene_name
+
+# we also want to get rid of those massive sample names
+colnames(subsetTbl_m) <- c("INT1", "INT2", "INT3", "INT4", "SVX1", "SVX2", "SVX3", "SVX4")
+
+library(pheatmap)
+
+pheatmap(subsetTbl_m,
+         cutree_rows = 7)
 ```
 
