@@ -127,7 +127,7 @@ So we have our data normalised, lets see how the samples relate to each other. W
 
 ```{r qc}
 
-pdf("Hierarchical_clustering.pdf")
+#pdf("Hierarchical_clustering.pdf")
 m<-t(exprs(rawData))
 d <- dist(m)
 fit <- hclust(d) 
@@ -140,7 +140,7 @@ m<-t(exprs(geneSummaries))
 d <- dist(m)
 fit <- hclust(d) 
 plot(fit,main="gene base normalization data")
-dev.off()
+#dev.off()
 ```
 
 Do the samples relate to each other? What clustered with what sample? Do intacts and svx cluster together or separated (like we would expect)?
@@ -174,7 +174,7 @@ x <- mogene20sttranscriptclusterENTREZID
 mapped_genes <- mappedkeys(x)
 
 # Create dataframes
-Annot <- as.data.frame(x[mapped_probes])
+Annot <- as.data.frame(x[mapped_genes])
 df <- data.frame(exprs(geneSummaries)) %>% 
    tibble::rownames_to_column(var="ProbeID")
 
@@ -196,7 +196,10 @@ Limma was developed at the Walter and Elizabeth Hall Institute for Medical Resea
 
 ```{r deg}
 
-all2 <- read.table("normalization_gene_matrix.with_annotation.txt",sep="\t",head=TRUE,row.names=1)
+all2 <- read.table("normalization_gene_matrix.with_annotation.txt",
+                   sep="\t",
+                   head=TRUE,
+                   row.names=1)
 
 rownames(all2) <- all2$probe_id
 
@@ -325,7 +328,7 @@ entrez2mgi <- getBM(attributes = c("external_gene_name", "entrezgene", "gene_bio
                     values = new_noNA$gene_id)
 
 final_table <- dplyr::full_join(new_noNA, entrez2mgi, by = c("gene_id" = "entrezgene")) %>%
-   dplyr::select(external_gene_name, Symbol, gene_biotype, logFC, AveExpr, P.Value, adj.P.Val)
+   dplyr::select(external_gene_name, Symbol, gene_id, gene_biotype, logFC, AveExpr, P.Value, adj.P.Val)
 
 pander(final_table %>% head(n=20))
 ```
@@ -362,4 +365,60 @@ library(pheatmap)
 pheatmap(subsetTbl_m,
          cutree_rows = 7)
 ```
+
+
+# Pathview example
+
+Ideally, what we really want to have is a way of displaying what genes are differentially expressed in one pathway and where they are in the network. Lets see if we can use Pathview to do what we need.
+
+NB: This is an example at this stage. You may need to experiment with what parts of the analysis means (especially the -1 -> 1 heatmap colours)
+
+```{r pathview}
+
+# To install pathview you can run the code below
+#source("https://bioconductor.org/biocLite.R")
+#biocLite("pathview")
+
+# Load da library
+library(pathview)
+
+# We're going to look at one of the pathways that was enriched from our previous KEGG pathway analysis
+# - T cell signalling pathway (mmu04660)
+
+pathway_id <- "04660"
+
+# Lets get all of the pathway genes
+pathgenes <- getGeneKEGGLinks(species.KEGG = "mmu") %>% 
+   filter(PathwayID == "path:mmu04660")
+
+# ...and limit our DEGs to just those in the pathway
+deg_path <- final_table[final_table$gene_id %in% pathgenes$GeneID,] 
+
+# Lets subset our "all counts" dataframe to our pathway genes
+subsetTbl <- all2[rownames(all2) %in% deg_path$Symbol,]
+
+# Remove the first column because thats just the probe ids
+subsetTbl <- subsetTbl[,-1]
+
+# Change the name of our rownames to the entrez gene id (because thats what they use to get the info)
+rownames(subsetTbl) <- subsetTbl$gene_id
+
+# Remove that gene id column (because its now our rownames)
+subsetTbl <- subsetTbl[,-1]
+
+# convert to a data matrix for plotting
+subsetTbl_m <- data.matrix(subsetTbl)
+
+# Run pathview!
+pv.out <- pathview(gene.data = subsetTbl_m, gene.idtype="entrez",
+                   pathway.id = pathway_id, species = "mmu", min.nnodes = 1,
+                   kegg.native = T, same.layer=T,
+                   low = list(gene = "SteelBlue", cpd = "blue"),
+                   mid = list(gene = "LemonChiffon", cpd = "gray"),
+                   high = list(gene = "OrangeRed", cpd = "yellow"))
+
+
+
+```
+
 
